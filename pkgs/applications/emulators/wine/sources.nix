@@ -1,28 +1,44 @@
-{ pkgs ? import <nixpkgs> {} }:
+{pkgs ? import <nixpkgs> {}}:
 ## we default to importing <nixpkgs> here, so that you can use
 ## a simple shell command to insert new hashes into this file
 ## e.g. with emacs C-u M-x shell-command
 ##
 ##     nix-prefetch-url sources.nix -A {stable{,.mono,.gecko64,.gecko32}, unstable, staging, winetricks}
-
 # here we wrap fetchurl and fetchFromGitHub, in order to be able to pass additional args around it
-let fetchurl = args@{url, hash, ...}:
-  pkgs.fetchurl { inherit url hash; } // args;
-    fetchFromGitHub = args@{owner, repo, rev, hash, ...}:
-  pkgs.fetchFromGitHub { inherit owner repo rev hash; } // args;
-    fetchFromGitLab = args@{domain, owner, repo, rev, hash, ...}:
-  pkgs.fetchFromGitLab { inherit domain owner repo rev hash; } // args;
+let
+  fetchurl = args @ {
+    url,
+    hash,
+    ...
+  }:
+    pkgs.fetchurl {inherit url hash;} // args;
+  fetchFromGitHub = args @ {
+    owner,
+    repo,
+    rev,
+    hash,
+    ...
+  }:
+    pkgs.fetchFromGitHub {inherit owner repo rev hash;} // args;
+  fetchFromGitLab = args @ {
+    domain,
+    owner,
+    repo,
+    rev,
+    hash,
+    ...
+  }:
+    pkgs.fetchFromGitLab {inherit domain owner repo rev hash;} // args;
 
-    updateScriptPreamble = ''
-      set -eou pipefail
-      PATH=${with pkgs; lib.makeBinPath [ common-updater-scripts coreutils curl gnugrep gnused jq nix ]}
-      sources_file=${__curPos.file}
-      source ${./update-lib.sh}
-    '';
+  updateScriptPreamble = ''
+    set -eou pipefail
+    PATH=${with pkgs; lib.makeBinPath [common-updater-scripts coreutils curl gnugrep gnused jq nix]}
+    sources_file=${__curPos.file}
+    source ${./update-lib.sh}
+  '';
 
-    inherit (pkgs) writeShellScript;
+  inherit (pkgs) writeShellScript;
 in rec {
-
   stable = fetchurl rec {
     version = "9.0";
     url = "https://dl.winehq.org/wine/source/9.0/wine-${version}.tar.xz";
@@ -52,7 +68,7 @@ in rec {
       ./cert-path.patch
     ];
 
-    updateScript = writeShellScript "update-wine-stable" (''
+    updateScript = writeShellScript "update-wine-stable" ''
       ${updateScriptPreamble}
       major=''${UPDATE_NIX_OLD_VERSION%%.*}
       latest_stable=$(get_latest_wine_version "$major.0")
@@ -64,14 +80,14 @@ in rec {
       fi
 
       do_update
-    '');
+    '';
   };
 
   unstable = fetchurl rec {
     # NOTE: Don't forget to change the hash for staging as well.
-    version = "9.20";
+    version = "9.22";
     url = "https://dl.winehq.org/wine/source/9.x/wine-${version}.tar.xz";
-    hash = "sha256-lfK0WxRYElvn2fzMlMpfjM4KXkrhHQ0ZPPt93bNeeoY=";
+    hash = "sha256-4VDSl0KqVPdo7z6XbthhqqT59IVC5Am+qQLQ9Js1loM=";
     inherit (stable) patches;
 
     ## see http://wiki.winehq.org/Gecko
@@ -117,13 +133,13 @@ in rec {
   staging = fetchFromGitLab rec {
     # https://gitlab.winehq.org/wine/wine-staging
     inherit (unstable) version;
-    hash = "sha256-ewozuCtYPaV9d4XD9sdRGMfJcBIE13TC5vNEWdbcGCs=";
+    hash = "sha256-8bWr8HTl6y9t6TBQr5843FoxxwFJ0z7H/3Zx0gHZO+k=";
     domain = "gitlab.winehq.org";
     owner = "wine";
     repo = "wine-staging";
     rev = "v${version}";
 
-    disabledPatchsets = [ ];
+    disabledPatchsets = [];
   };
 
   wayland = fetchFromGitLab {
