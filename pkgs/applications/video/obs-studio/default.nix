@@ -7,6 +7,7 @@
   nv-codec-headers-12,
   fetchFromGitHub,
   addDriverRunpath,
+  autoAddDriverRunpath,
   cmake,
   fdk_aac,
   ffmpeg,
@@ -58,128 +59,134 @@
   libvpl,
   qrcodegencpp,
   nix-update-script,
-}:
-
-let
+}: let
   inherit (lib) optional optionals;
 in
+  stdenv.mkDerivation (finalAttrs: {
+    pname = "obs-studio";
+    version = "31.0.1";
 
-stdenv.mkDerivation (finalAttrs: {
-  pname = "obs-studio";
-  version = "31.0.1";
+    src = fetchFromGitHub {
+      owner = "obsproject";
+      repo = "obs-studio";
+      rev = finalAttrs.version;
+      hash = "sha256-dwS/90j4WfcneAsGFwuABM7xqvq1+VSD2uDVdU/GgQo=";
+      fetchSubmodules = true;
+    };
 
-  src = fetchFromGitHub {
-    owner = "obsproject";
-    repo = "obs-studio";
-    rev = finalAttrs.version;
-    hash = "sha256-dwS/90j4WfcneAsGFwuABM7xqvq1+VSD2uDVdU/GgQo=";
-    fetchSubmodules = true;
-  };
+    separateDebugInfo = true;
 
-  separateDebugInfo = true;
+    patches = [
+      # Lets obs-browser build against CEF 90.1.0+
+      ./Enable-file-access-and-universal-access-for-file-URL.patch
+      ./fix-nix-plugin-path.patch
+    ];
 
-  patches = [
-    # Lets obs-browser build against CEF 90.1.0+
-    ./Enable-file-access-and-universal-access-for-file-URL.patch
-    ./fix-nix-plugin-path.patch
-  ];
+    nativeBuildInputs =
+      [
+        addDriverRunpath
+        cmake
+        ninja
+        pkg-config
+        wrapGAppsHook3
+        wrapQtAppsHook
+        nv-codec-headers-12
+        autoAddDriverRunpath
+      ]
+      ++ optional scriptingSupport swig;
 
-  nativeBuildInputs = [
-    addDriverRunpath
-    cmake
-    ninja
-    pkg-config
-    wrapGAppsHook3
-    wrapQtAppsHook
-  ] ++ optional scriptingSupport swig;
+    buildInputs =
+      [
+        curl
+        ffmpeg
+        jansson
+        libjack2
+        libv4l
+        libxkbcommon
+        libpthreadstubs
+        libXdmcp
+        qtbase
+        qtsvg
+        speex
+        wayland
+        x264
+        libvlc
+        mbedtls
+        pciutils
+        librist
+        cjson
+        libva
+        srt
+        qtwayland
+        nlohmann_json
+        websocketpp
+        asio
+        libdatachannel
+        libvpl
+        qrcodegencpp
+        uthash
+        nv-codec-headers-12
+      ]
+      ++ optionals scriptingSupport [
+        luajit
+        python3
+      ]
+      ++ optional alsaSupport alsa-lib
+      ++ optional pulseaudioSupport libpulseaudio
+      ++ optionals pipewireSupport [
+        pipewire
+        libdrm
+      ]
+      ++ optional browserSupport libcef
+      ++ optional withFdk fdk_aac;
 
-  buildInputs =
-    [
-      curl
-      ffmpeg
-      jansson
-      libjack2
-      libv4l
-      libxkbcommon
-      libpthreadstubs
-      libXdmcp
-      qtbase
-      qtsvg
-      speex
-      wayland
-      x264
-      libvlc
-      mbedtls
-      pciutils
-      librist
-      cjson
-      libva
-      srt
-      qtwayland
-      nlohmann_json
-      websocketpp
-      asio
-      libdatachannel
-      libvpl
-      qrcodegencpp
-      uthash
-      nv-codec-headers-12
-    ]
-    ++ optionals scriptingSupport [
-      luajit
-      python3
-    ]
-    ++ optional alsaSupport alsa-lib
-    ++ optional pulseaudioSupport libpulseaudio
-    ++ optionals pipewireSupport [
-      pipewire
-      libdrm
-    ]
-    ++ optional browserSupport libcef
-    ++ optional withFdk fdk_aac;
+    # Copied from the obs-linuxbrowser
+    postUnpack = lib.optionalString browserSupport ''
+      mkdir -p cef/Release cef/Resources cef/libcef_dll_wrapper/
+      for i in ${libcef}/share/cef/*; do
+        ln -s $i cef/Release/
+        ln -s $i cef/Resources/
+      done
+      ln -s ${libcef}/lib/*.so* cef/Release/
+      ln -s ${libcef}/libexec/cef/chrome-sandbox cef/Release/
+      ln -s ${libcef}/lib/libcef_dll_wrapper.a cef/libcef_dll_wrapper/
+      ln -s ${libcef}/include cef/
+    '';
 
-  # Copied from the obs-linuxbrowser
-  postUnpack = lib.optionalString browserSupport ''
-    mkdir -p cef/Release cef/Resources cef/libcef_dll_wrapper/
-    for i in ${libcef}/share/cef/*; do
-      ln -s $i cef/Release/
-      ln -s $i cef/Resources/
-    done
-    ln -s ${libcef}/lib/*.so* cef/Release/
-    ln -s ${libcef}/libexec/cef/chrome-sandbox cef/Release/
-    ln -s ${libcef}/lib/libcef_dll_wrapper.a cef/libcef_dll_wrapper/
-    ln -s ${libcef}/include cef/
-  '';
+    postPatch = ''
+      cp ${./CMakeUserPresets.json} ./CMakeUserPresets.json
+    '';
 
-  postPatch = ''
-    cp ${./CMakeUserPresets.json} ./CMakeUserPresets.json
-  '';
+    cmakeFlags =
+      [
+        "--preset"
+        "nixpkgs-${
+          if stdenv.hostPlatform.isDarwin
+          then "darwin"
+          else "linux"
+        }"
+        "-DOBS_VERSION_OVERRIDE=${finalAttrs.version}"
+        "-Wno-dev"
+        "-DENABLE_JACK=ON"
+        "-DENABLE_WEBRTC=ON"
+        (lib.cmakeBool "ENABLE_QSV11" stdenv.hostPlatform.isx86_64)
+        (lib.cmakeBool "ENABLE_LIBFDK" withFdk)
+        (lib.cmakeBool "ENABLE_ALSA" alsaSupport)
+        (lib.cmakeBool "ENABLE_PULSEAUDIO" pulseaudioSupport)
+        (lib.cmakeBool "ENABLE_PIPEWIRE" pipewireSupport)
+        (lib.cmakeBool "ENABLE_AJA" false)
+        (lib.cmakeBool "ENABLE_BROWSER" browserSupport)
+      ]
+      ++ lib.optional browserSupport "-DCEF_ROOT_DIR=../../cef";
 
-  cmakeFlags = [
-    "--preset"
-    "nixpkgs-${if stdenv.hostPlatform.isDarwin then "darwin" else "linux"}"
-    "-DOBS_VERSION_OVERRIDE=${finalAttrs.version}"
-    "-Wno-dev" # kill dev warnings that are useless for packaging
-    "-DENABLE_JACK=ON"
-    "-DENABLE_WEBRTC=ON"
-    (lib.cmakeBool "ENABLE_QSV11" stdenv.hostPlatform.isx86_64)
-    (lib.cmakeBool "ENABLE_LIBFDK" withFdk)
-    (lib.cmakeBool "ENABLE_ALSA" alsaSupport)
-    (lib.cmakeBool "ENABLE_PULSEAUDIO" pulseaudioSupport)
-    (lib.cmakeBool "ENABLE_PIPEWIRE" pipewireSupport)
-    (lib.cmakeBool "ENABLE_AJA" false) # TODO: fix linking against libajantv2
-    (lib.cmakeBool "ENABLE_BROWSER" browserSupport)
-  ] ++ lib.optional browserSupport "-DCEF_ROOT_DIR=../../cef";
+    env.NIX_CFLAGS_COMPILE = toString [
+      "-Wno-error=deprecated-declarations"
+      "-Wno-error=sign-compare" # https://github.com/obsproject/obs-studio/issues/10200
+      "-Wno-error=stringop-overflow="
+    ];
 
-  env.NIX_CFLAGS_COMPILE = toString [
-    "-Wno-error=deprecated-declarations"
-    "-Wno-error=sign-compare" # https://github.com/obsproject/obs-studio/issues/10200
-    "-Wno-error=stringop-overflow="
-  ];
-
-  dontWrapGApps = true;
-  preFixup =
-    let
+    dontWrapGApps = true;
+    preFixup = let
       wrapperLibraries =
         [
           xorg.libX11
@@ -190,56 +197,57 @@ stdenv.mkDerivation (finalAttrs: {
           blackmagic-desktop-video
         ];
     in
-    ''
-      qtWrapperArgs+=(
-        --prefix LD_LIBRARY_PATH : "$out/lib:${lib.makeLibraryPath wrapperLibraries}"
-        ''${gappsWrapperArgs[@]}
-      )
-    ''
-    + lib.optionalString browserSupport ''
-      # Remove cef components before patchelf, otherwise it will fail
-      rm $out/lib/obs-plugins/libcef.so
-      rm $out/lib/obs-plugins/libEGL.so
-      rm $out/lib/obs-plugins/libGLESv2.so
-      rm $out/lib/obs-plugins/libvk_swiftshader.so
-      rm $out/lib/obs-plugins/libvulkan.so.1
-      rm $out/lib/obs-plugins/chrome-sandbox
-    '';
+      ''
+        export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/run/opengl-driver/lib
+          qtWrapperArgs+=(
+            --prefix LD_LIBRARY_PATH : "$out/lib:${lib.makeLibraryPath wrapperLibraries}"
+            ''${gappsWrapperArgs[@]}
+          )
+      ''
+      + lib.optionalString browserSupport ''
+        # Remove cef components before patchelf, otherwise it will fail
+        rm $out/lib/obs-plugins/libcef.so
+        rm $out/lib/obs-plugins/libEGL.so
+        rm $out/lib/obs-plugins/libGLESv2.so
+        rm $out/lib/obs-plugins/libvk_swiftshader.so
+        rm $out/lib/obs-plugins/libvulkan.so.1
+        rm $out/lib/obs-plugins/chrome-sandbox
+      '';
 
-  postFixup = lib.concatStrings [
-    (lib.optionalString stdenv.hostPlatform.isLinux ''
-      addDriverRunpath $out/lib/lib*.so
-      addDriverRunpath $out/lib/obs-plugins/*.so
-    '')
+    postFixup = lib.concatStrings [
+      (lib.optionalString stdenv.hostPlatform.isLinux ''
+        addDriverRunpath $out/lib/lib*.so
+        addDriverRunpath $out/lib/obs-plugins/*.so
+      '')
 
-    (lib.optionalString browserSupport ''
-      # Link cef components again after patchelfing other libs
-      ln -s ${libcef}/lib/* $out/lib/obs-plugins/
-      ln -s ${libcef}/libexec/cef/* $out/lib/obs-plugins/
-    '')
-  ];
-
-  passthru.updateScript = nix-update-script { };
-
-  meta = with lib; {
-    description = "Free and open source software for video recording and live streaming";
-    longDescription = ''
-      This project is a rewrite of what was formerly known as "Open Broadcaster
-      Software", software originally designed for recording and streaming live
-      video content, efficiently
-    '';
-    homepage = "https://obsproject.com";
-    maintainers = with maintainers; [
-      jb55
-      materus
-      fpletz
+      (lib.optionalString browserSupport ''
+        # Link cef components again after patchelfing other libs
+        ln -s ${libcef}/lib/* $out/lib/obs-plugins/
+        ln -s ${libcef}/libexec/cef/* $out/lib/obs-plugins/
+      '')
     ];
-    license = with licenses; [ gpl2Plus ] ++ optional withFdk fraunhofer-fdk;
-    platforms = [
-      "x86_64-linux"
-      "i686-linux"
-      "aarch64-linux"
-    ];
-    mainProgram = "obs";
-  };
-})
+
+    passthru.updateScript = nix-update-script {};
+
+    meta = with lib; {
+      description = "Free and open source software for video recording and live streaming";
+      longDescription = ''
+        This project is a rewrite of what was formerly known as "Open Broadcaster
+        Software", software originally designed for recording and streaming live
+        video content, efficiently
+      '';
+      homepage = "https://obsproject.com";
+      maintainers = with maintainers; [
+        jb55
+        materus
+        fpletz
+      ];
+      license = with licenses; [gpl2Plus] ++ optional withFdk fraunhofer-fdk;
+      platforms = [
+        "x86_64-linux"
+        "i686-linux"
+        "aarch64-linux"
+      ];
+      mainProgram = "obs";
+    };
+  })
