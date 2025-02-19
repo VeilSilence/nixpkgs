@@ -7,6 +7,7 @@
   nv-codec-headers-12,
   fetchFromGitHub,
   addDriverRunpath,
+  autoAddDriverRunpath,
   cmake,
   fdk_aac,
   ffmpeg,
@@ -86,6 +87,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     addDriverRunpath
+    autoAddDriverRunpath
     cmake
     ninja
     pkg-config
